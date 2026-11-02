@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -18,7 +18,10 @@ import { DashboardGrid } from '@/components/dashboard/DashboardGrid'
 import { AddWidgetPanel } from '@/components/dashboard/AddWidgetPanel'
 import { useDashboardLayout } from '@/components/dashboard/useDashboardLayout'
 import { DEFAULT_LAYOUT, widgetDef, type WidgetCtx } from '@/components/dashboard/registry'
-import { cloneItems, GRID_COLS, type WidgetType } from '@/components/dashboard/layout'
+import { cloneItems, compactLayout, GRID_COLS, type DashboardItem, type WidgetType } from '@/components/dashboard/layout'
+import { useResearchView } from '@/lib/useResearchMarket'
+import { MAIN_BOARD_HIDDEN_WIDGETS, partitionMainBoard } from '@/lib/researchMarket'
+import { AllocationResearch, CnOnlyDrawer, GlobalHome, MarketDesk } from '@/components/research/ResearchChrome'
 
 /** 兼容旧后端的预热标志; 同步/自动修复也会使统计暂不可用。 */
 export function isDataStatusPending(ds?: DataStatus): boolean {
@@ -36,8 +39,12 @@ export function resolveHasNoData(ds?: DataStatus): boolean {
 /** 打开个股预览的来源榜 (用于行高亮与切股导航列表) */
 type PreviewSource = 'gain' | 'loss' | 'amount' | 'active' | 'concept' | 'industry' | 'alert'
 
+const HIDDEN_MAIN_WIDGETS = new Set<string>(MAIN_BOARD_HIDDEN_WIDGETS)
+
 export function Dashboard() {
   const qc = useQueryClient()
+  const research = useResearchView()
+  const showAshareBoard = !research.enabled || research.view === 'CN'
   const [selectedDate, setSelectedDate] = useState<string | undefined>()
   const [manualFetching, setManualFetching] = useState(false)
   const [previewStock, setPreviewStock] = useState<{
@@ -57,6 +64,14 @@ export function Dashboard() {
   // 布局编辑态: 入口与控制组(添加组件/恢复默认/完成)在头部「重载」右侧
   const [dashEditing, setDashEditing] = useState(false)
   const placedTypes = useMemo(() => new Set(dashItems.map(it => it.t)), [dashItems])
+  const { visible: boardItems, hidden: hiddenBoardItems } = useMemo(
+    () => partitionMainBoard(dashItems, research.enabled),
+    [dashItems, research.enabled],
+  )
+  const onBoardItems = useCallback((next: DashboardItem[]) => {
+    // 编辑只改可见格。藏起的连板/概念组件留在已保存布局里，关旗标后仍能回来。
+    setDashItems(research.enabled ? compactLayout([...next, ...hiddenBoardItems]) : next)
+  }, [research.enabled, hiddenBoardItems, setDashItems])
   const resetDashLayout = useCallback(() => {
     setDashItems(cloneItems(DEFAULT_LAYOUT))
   }, [setDashItems])
@@ -82,6 +97,8 @@ export function Dashboard() {
     queryFn: () => api.overviewMarket(selectedDate),
     staleTime: 5_000,
     placeholderData: (prev) => prev,
+    // 全球首页与非 CN 工作台不拉 A 股总览，避免把连板口径填进其他市场。
+    enabled: showAshareBoard,
   })
   const data = overview.data
   const caps = useCapabilities()
@@ -136,12 +153,13 @@ export function Dashboard() {
   // 「开始获取」前若无除权因子能力, 先弹前置确认 (adjGate.guard)
   const adjGate = useAdjFactorSyncGate()
   useEffect(() => {
+    if (!showAshareBoard) return
     if (!hasNoData) return
     if (settings.data?.onboarding_completed === false) return  // 还在引导流程中,不重复弹
     if (sessionStorage.getItem('tf_welcome_shown')) return
     sessionStorage.setItem('tf_welcome_shown', '1')
     setShowWelcomeModal(true)
-  }, [hasNoData, settings.data?.onboarding_completed])
+  }, [showAshareBoard, hasNoData, settings.data?.onboarding_completed])
 
   // 同步完成后刷新看板数据
   useEffect(() => {
@@ -156,6 +174,7 @@ export function Dashboard() {
   // 修复: 挂载时若无本地数据且未跟踪任何 job, 查一次后端是否有 active job, 有则接管。
   const resumeTriedRef = useRef(false)
   useEffect(() => {
+    if (!showAshareBoard) return
     if (resumeTriedRef.current) return
     if (!hasNoData) return
     if (fetchJobId) return
@@ -163,7 +182,7 @@ export function Dashboard() {
     api.pipelineJobs(1).then(({ active_id }) => {
       if (active_id) setFetchJobId(active_id)
     }).catch(() => { /* 查询失败不阻塞, 用户仍可手动点击获取 */ })
-  }, [hasNoData, fetchJobId])
+  }, [showAshareBoard, hasNoData, fetchJobId])
 
   // 手动刷新: 先重建后端 Polars 缓存(解决跨天残留), 再重新拉看板数据
   const handleRefresh = () => {
@@ -175,24 +194,40 @@ export function Dashboard() {
       })
   }
 
+  if (research.enabled) {
+    if (research.view === 'GLOBAL') return <GlobalHome onOpenMarket={research.setView} />
+    if (research.view !== 'CN') return <MarketDesk code={research.view} />
+  }
+
+  // 总览失败时仍保留 CN 抽屉和配置条，避免 A 股快照缺失把研究壳一起拿掉。
+  const withResearchFrame = (children: ReactNode) => (
+    research.enabled ? (
+      <div className="min-h-full bg-base p-1.5" data-testid="ashare-board">
+        <AllocationResearch />
+        {research.view === 'CN' && <CnOnlyDrawer />}
+        {children}
+      </div>
+    ) : <>{children}</>
+  )
+
   if (overview.isLoading && !data) {
-    return (
+    return withResearchFrame(
       <div className="flex h-full items-center justify-center bg-base">
         <div className="flex items-center gap-2 text-sm text-muted">
           <Loader2 className="h-4 w-4 animate-spin" /> 加载市场看板…
         </div>
-      </div>
+      </div>,
     )
   }
 
   if (!data) {
-    return (
+    return withResearchFrame(
       <div className="flex h-full items-center justify-center bg-base p-6">
         <div className="rounded-card border border-border bg-surface p-6 text-center">
           <div className="text-sm text-danger">看板加载失败</div>
           <button onClick={() => overview.refetch()} className="mt-3 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-white">重试</button>
         </div>
-      </div>
+      </div>,
     )
   }
 
@@ -218,10 +253,13 @@ export function Dashboard() {
     openAlert: (event, navList) => {
       if (event.symbol) setPreviewStock({ symbol: event.symbol, name: event.name ?? undefined, alert: event, source: 'alert', navList })
     },
+    hideCnSpeculation: research.enabled,
   }
 
   return (
-    <div className="min-h-full bg-base p-1.5">
+    <div className="min-h-full bg-base p-1.5" data-testid="ashare-board">
+      {research.enabled && <AllocationResearch />}
+      {research.enabled && research.view === 'CN' && <CnOnlyDrawer />}
       {/* 无本地数据常驻引导卡片 —— 一键触发盘后管道获取数据(无 Key 也可) */}
       {hasNoData && (
         <FetchDataCard
@@ -300,7 +338,7 @@ export function Dashboard() {
             </button>
           ) : (
             <>
-              <AddWidgetPanel placedTypes={placedTypes} onAdd={addDashWidget} />
+              <AddWidgetPanel placedTypes={placedTypes} onAdd={addDashWidget} hiddenTypes={research.enabled ? HIDDEN_MAIN_WIDGETS : undefined} />
               <button
                 onClick={resetDashLayout}
                 className="inline-flex items-center gap-1 rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground"
@@ -330,7 +368,7 @@ export function Dashboard() {
         </div>
       )}
 
-      <DashboardGrid ctx={widgetCtx} items={dashItems} onItemsChange={setDashItems} editing={dashEditing} />
+      <DashboardGrid ctx={widgetCtx} items={boardItems} onItemsChange={onBoardItems} editing={dashEditing} />
 
       <StockPreviewDialog
         symbol={previewStock?.symbol ?? null}

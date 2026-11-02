@@ -34,6 +34,11 @@ export interface WidgetCtx {
   openStock: (source: string, symbol: string, name?: string, navList?: { symbol: string; name?: string }[]) => void
   openDimension: (t: DimensionMembersTarget) => void
   openAlert: (ev: AlertEvent, navList?: { symbol: string; name?: string }[]) => void
+  /**
+   * 四市壳打开时，主看板不渲染涨停/连板/炸板。
+   * 这些列只留在 market=CN 的研究抽屉里，不进全球首页。
+   */
+  hideCnSpeculation?: boolean
 }
 
 export interface WidgetDef {
@@ -87,17 +92,18 @@ function KpiWidget({ ctx }: { ctx: WidgetCtx }) {
   const { data, hasDepth, isSealedDegrade, sealedReady } = ctx
   const strongUp = data.breadth.strong_up ?? 0
   const strongDown = data.breadth.strong_down ?? 0
+  const hideLimit = ctx.hideCnSpeculation
   return (
-    <div className="grid h-full grid-cols-3 gap-1 xl:grid-cols-6">
+    <div className={`grid h-full gap-1 ${hideLimit ? 'grid-cols-2 xl:grid-cols-4' : 'grid-cols-3 xl:grid-cols-6'}`}>
       <KpiCell label="个股涨 / 平 / 跌" value={<><span className="text-bull">{data.breadth.up}</span><span className="text-muted">/</span><span className="text-muted">{data.breadth.flat}</span><span className="text-muted">/</span><span className="text-bear">{data.breadth.down}</span></>} sub={`上涨率 ${data.breadth.up_pct.toFixed(1)}%`} />
       <KpiCell label="强势 / 弱势" value={<><span className="text-bull">{strongUp}</span><span className="text-muted">/</span><span className="text-bear">{strongDown}</span></>} sub="涨跌 ≥3%" />
-      <KpiCell label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />
-      <KpiCell label="最高连板" value={`${data.limit.max_boards || 0}板`} sub={(() => {
+      {!hideLimit && <KpiCell label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />}
+      {!hideLimit && <KpiCell label="最高连板" value={`${data.limit.max_boards || 0}板`} sub={(() => {
         const top = data.limit.tiers.find(t => t.boards === data.limit.max_boards)
         const stocks = top?.stocks ?? []
         if (stocks.length > 0 && stocks.length <= 3) return stocks.map(s => s.name || s.symbol).join(' · ')
         return `梯队 ${data.limit.tiers.length}`
-      })()} tone="accent" />
+      })()} tone="accent" />}
       <KpiCell label="成交额" value={fmtBigNum(data.amount.total)} sub={`均额 ${fmtBigNum(data.amount.avg)}`} />
       <KpiCell label="换手 / 量比" value={`${fmtPrice(data.activity.avg_turnover, 1)}% / ${fmtPrice(data.activity.vol_ratio, 2)}`} sub={`高换手 ${data.activity.high_turnover} · 放量占比 ${fmtPrice(data.activity.high_vol_ratio, 1)}%`} tone="accent" />
     </div>
@@ -122,8 +128,8 @@ function TrendWidget({ ctx }: { ctx: WidgetCtx }) {
       <div className="mt-1.5 border-t border-border pt-1.5">
         <SectionTitle icon={Target} title="实用监控" hint="盘中观察" />
         <div className="grid grid-cols-3 gap-1.5">
-          <MiniMetric label="炸板" value={`${data.limit.broken ?? 0}`} cls="text-warning" />
-          <MiniMetric label="跌停" value={`${data.limit.limit_down ?? 0}`} cls="text-bear" />
+          {!ctx.hideCnSpeculation && <MiniMetric label="炸板" value={`${data.limit.broken ?? 0}`} cls="text-warning" />}
+          {!ctx.hideCnSpeculation && <MiniMetric label="跌停" value={`${data.limit.limit_down ?? 0}`} cls="text-bear" />}
           <MiniMetric label="站上MA60" value={`${data.trend.above_ma60_pct.toFixed(0)}%`} cls="text-accent" />
           <MiniMetric label="新高/新低" value={`${compactCount(data.trend.new_high)}/${compactCount(data.trend.new_low)}`} cls={data.trend.new_high >= data.trend.new_low ? 'text-bull' : 'text-bear'} />
           <MiniMetric label="高换手数" value={`${data.activity.high_turnover}`} cls="text-accent" />

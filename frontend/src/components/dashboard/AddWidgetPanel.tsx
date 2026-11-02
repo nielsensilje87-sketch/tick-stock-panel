@@ -18,9 +18,12 @@ const PANEL_W = 288 // w-72
 export function AddWidgetPanel({
   placedTypes,
   onAdd,
+  hiddenTypes,
 }: {
   placedTypes: Set<WidgetType>
   onAdd: (t: WidgetType, props?: Record<string, string>) => void
+  /** 主看板不提供的类型（连板梯队 / 概念热力走 CN 抽屉，不从这里加回）。 */
+  hiddenTypes?: ReadonlySet<string>
 }) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
@@ -106,7 +109,7 @@ export function AddWidgetPanel({
         >
           <div className="mb-1.5 px-0.5 text-[10px] font-medium text-muted">内置组件</div>
           <div className="max-h-56 space-y-0.5 overflow-y-auto">
-            {WIDGET_DEFS.filter(d => d.id !== 'ext-link').map(d => {
+            {WIDGET_DEFS.filter(d => d.id !== 'ext-link' && !hiddenTypes?.has(d.id)).map(d => {
               const placed = placedTypes.has(d.id)
               return (
                 <button
