@@ -1,0 +1,51 @@
+{
+  "schema": "dsh-lake-panel-status@1",
+  "live_trading": false,
+  "built_at_utc": "2026-11-02T09:22:19Z",
+  "note": "CN+CRYPTO from signed R2 only; US/HK unwired; no yfinance/quarantine",
+  "markets": {
+    "US": {
+      "market": "US",
+      "panel_id": "panel_us@1",
+      "wired": false,
+      "symbol_count": null,
+      "data_asof": null,
+      "source_primary": null,
+      "timezone": "America/New_York",
+      "row_count": null,
+      "reason": "BARS_EMPTY · UNSIGNED · no primary"
+    },
+    "CN": {
+      "market": "CN",
+      "panel_id": "panel_cn@1",
+      "wired": true,
+      "symbol_count": 3,
+      "data_asof": "2026-10-29",
+      "source_primary": "cnequity_local",
+      "timezone": "Asia/Shanghai",
+      "row_count": 120
+    },
+    "CRYPTO": {
+      "market": "CRYPTO",
+      "panel_id": "panel_crypto@1",
+      "wired": true,
+      "symbol_count": 2,
+      "data_asof": "2026-10-27",
+      "source_primary": "okx_public_candles_1d",
+      "timezone": "UTC",
+      "row_count": 58
+    },
+    "HK": {
+      "market": "HK",
+      "panel_id": "panel_hk@1",
+      "wired": false,
+      "symbol_count": null,
+      "data_asof": null,
+      "source_primary": null,
+      "timezone": "Asia/Hong_Kong",
+      "row_count": null,
+      "reason": "unwired"
+    }
+  },
+  "capture": "GET :3019 after overwrite 2026-11-02 Asia/Taipei"
+}
