@@ -11,13 +11,22 @@ const STORAGE_KEY = 'dsh.research.market'
 export interface ResearchMarketApi {
   enabled: boolean
   view: ResearchView
-  setView: (next: ResearchView) => void
+  /** `?symbol=` 原文。是否落在当前宇宙由涨幅条自己判断。 */
+  symbol: string | null
+  /**
+   * 第二个参数省略或空时清掉 symbol。
+   * 切市不沿用上一市代码，避免 000001.SZ 留在 CRYPTO 的查询串里。
+   */
+  setView: (next: ResearchView, symbol?: string | null) => void
+  setSymbol: (symbol: string | null) => void
 }
 
 const DISABLED: ResearchMarketApi = {
   enabled: false,
   view: 'GLOBAL',
+  symbol: null,
   setView: () => {},
+  setSymbol: () => {},
 }
 
 const ResearchMarketContext = createContext<ResearchMarketApi | null>(null)
@@ -46,7 +55,9 @@ export function useResearchMarket(): ResearchMarketApi {
   const enabled = researchMarketsEnabled()
   const [params, setParams] = useSearchParams()
   const urlRaw = params.get('market')
+  const symbolRaw = params.get('symbol')
   const view = enabled ? (urlRaw ? parseResearchView(urlRaw) : readStoredView()) : 'GLOBAL'
+  const symbol = enabled && symbolRaw && symbolRaw.trim() ? symbolRaw.trim() : null
 
   useEffect(() => {
     if (!enabled || !urlRaw) return
@@ -59,16 +70,26 @@ export function useResearchMarket(): ResearchMarketApi {
     }
   }, [enabled, urlRaw, params, setParams])
 
-  const setView = useCallback((next: ResearchView) => {
+  const setSymbol = useCallback((next: string | null) => {
+    if (!enabled) return
+    const q = new URLSearchParams(params)
+    if (next && next.trim()) q.set('symbol', next.trim())
+    else q.delete('symbol')
+    setParams(q, { replace: true })
+  }, [enabled, params, setParams])
+
+  const setView = useCallback((next: ResearchView, nextSymbol?: string | null) => {
     if (!enabled) return
     const parsed = parseResearchView(next)
     writeStoredView(parsed)
     const q = new URLSearchParams(params)
     q.set('market', parsed)
+    if (nextSymbol && nextSymbol.trim()) q.set('symbol', nextSymbol.trim())
+    else q.delete('symbol')
     setParams(q, { replace: true })
   }, [enabled, params, setParams])
 
-  return { enabled, view, setView }
+  return { enabled, view, symbol, setView, setSymbol }
 }
 
 export function ResearchMarketProvider({ children }: { children: ReactNode }) {

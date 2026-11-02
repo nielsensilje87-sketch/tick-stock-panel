@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useResearchView } from '@/lib/useResearchMarket'
 import {
   CALENDAR_RULES,
   FROZEN,
@@ -20,10 +21,13 @@ import { resolveLakeModels } from '@/lib/lakePanel'
 import { cn } from '@/lib/cn'
 import {
   GlobalSummaryTable,
-  LakeMarketSection,
   MarketSummaryCard,
   type LakeViewProps,
 } from './LakeBoard'
+import { MarketTape } from './MarketTape'
+
+/** 涨幅条：先并排已接线的 CN|CRYPTO，再放 US/HK stub。不跟卡片的 US 优先序混成跨市榜。 */
+const STRIP_ORDER = ['CN', 'CRYPTO', 'US', 'HK'] as const satisfies readonly ResearchMarketCode[]
 
 function LiveOffBadge() {
   return (
@@ -233,13 +237,13 @@ export function AllocationResearch() {
   )
 }
 
-/** 默认首页：四市摘要并排，不含跨市混动量，也不挂 A 股投机组件。 */
+/** 默认首页：四市涨幅条并排，不含跨市混榜，也不嵌整幅 K 线。 */
 export function GlobalHome({
   onOpenMarket,
   board = null,
   boardState = 'unloaded',
   boardError = null,
-}: { onOpenMarket: (code: ResearchMarketCode) => void } & LakeViewProps) {
+}: { onOpenMarket: (code: ResearchMarketCode, symbol?: string) => void } & LakeViewProps) {
   const resolved = resolveLakeModels(board, boardState, boardError)
   return (
     <div data-testid="global-home" data-view-id="global_overview@1" className="min-h-full bg-base p-3">
@@ -271,6 +275,20 @@ export function GlobalHome({
           </p>
         )}
       </header>
+      <div data-testid="global-strips" className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+        {STRIP_ORDER.map(code => (
+          <MarketTape
+            key={code}
+            code={code}
+            board={board}
+            boardState={boardState}
+            boardError={boardError}
+            showChart={false}
+            selectedSymbol={null}
+            onSelectSymbol={symbol => onOpenMarket(code, symbol)}
+          />
+        ))}
+      </div>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
         {resolved.models.map(model => (
           <MarketSummaryCard key={model.market} model={model} onOpen={onOpenMarket} />
@@ -292,6 +310,7 @@ export function MarketDesk({
   boardError = null,
 }: { code: Exclude<ResearchMarketCode, 'CN'> } & LakeViewProps) {
   const meta = MARKET_META[code]
+  const research = useResearchView()
   return (
     <div data-testid="market-desk" data-market={code} className="min-h-full bg-base p-3">
       <header className="mb-3">
@@ -303,11 +322,46 @@ export function MarketDesk({
           {meta.panel} · {meta.tz} · {meta.windowNote}
         </p>
       </header>
-      <LakeMarketSection code={code} board={board} boardState={boardState} boardError={boardError} />
+      <MarketTape
+        code={code}
+        board={board}
+        boardState={boardState}
+        boardError={boardError}
+        showChart
+        selectedSymbol={research.symbol}
+        onSelectSymbol={research.setSymbol}
+      />
       <div className="mt-3">
         <AllocationResearch />
       </div>
     </div>
+  )
+}
+
+/** CN 看板顶部：涨幅条、日线、既有湖表。离开 CN 不挂。 */
+export function CnBoardHeader({
+  symbol,
+  onSelectSymbol,
+  board = null,
+  boardState = 'unloaded',
+  boardError = null,
+}: { symbol: string | null; onSelectSymbol: (symbol: string) => void } & LakeViewProps) {
+  return (
+    <>
+      <div className="mb-2">
+        <MarketTape
+          code="CN"
+          board={board}
+          boardState={boardState}
+          boardError={boardError}
+          showChart
+          selectedSymbol={symbol}
+          onSelectSymbol={onSelectSymbol}
+        />
+      </div>
+      <AllocationResearch />
+      <CnOnlyDrawer />
+    </>
   )
 }
 

@@ -22,8 +22,7 @@ import { cloneItems, compactLayout, GRID_COLS, type DashboardItem, type WidgetTy
 import { useResearchView } from '@/lib/useResearchMarket'
 import { useLakePanel } from '@/lib/useLakePanel'
 import { MAIN_BOARD_HIDDEN_WIDGETS, partitionMainBoard } from '@/lib/researchMarket'
-import { AllocationResearch, CnOnlyDrawer, GlobalHome, MarketDesk } from '@/components/research/ResearchChrome'
-import { LakeMarketSection } from '@/components/research/LakeBoard'
+import { CnBoardHeader, GlobalHome, MarketDesk } from '@/components/research/ResearchChrome'
 
 /** 兼容旧后端的预热标志; 同步/自动修复也会使统计暂不可用。 */
 export function isDataStatusPending(ds?: DataStatus): boolean {
@@ -213,15 +212,15 @@ export function Dashboard() {
     if (research.view !== 'CN') return <MarketDesk code={research.view} {...lakeProps} />
   }
 
+  const cnHeader = research.enabled
+    ? <CnBoardHeader symbol={research.symbol} onSelectSymbol={research.setSymbol} {...lakeProps} />
+    : null
+
   // 总览失败时仍保留 CN 抽屉和配置条，避免 A 股快照缺失把研究壳一起拿掉。
   const withResearchFrame = (children: ReactNode) => (
     research.enabled ? (
       <div className="min-h-full bg-base p-1.5" data-testid="ashare-board">
-        <div className="mb-2">
-          <LakeMarketSection code="CN" {...lakeProps} />
-        </div>
-        <AllocationResearch />
-        {research.view === 'CN' && <CnOnlyDrawer />}
+        {cnHeader}
         {children}
       </div>
     ) : <>{children}</>
@@ -275,13 +274,7 @@ export function Dashboard() {
 
   return (
     <div className="min-h-full bg-base p-1.5" data-testid="ashare-board">
-      {research.enabled && (
-        <div className="mb-2">
-          <LakeMarketSection code="CN" {...lakeProps} />
-        </div>
-      )}
-      {research.enabled && <AllocationResearch />}
-      {research.enabled && research.view === 'CN' && <CnOnlyDrawer />}
+      {cnHeader}
       {/* 无本地数据常驻引导卡片 —— 一键触发盘后管道获取数据(无 Key 也可) */}
       {hasNoData && (
         <FetchDataCard

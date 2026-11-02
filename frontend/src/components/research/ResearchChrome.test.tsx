@@ -3,8 +3,11 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import barsJson from '../../../public/dsh-lake-panel-bars.json'
 import statusJson from '../../../public/dsh-lake-panel-status.json'
 import { normalizeLakePanel } from '@/lib/lakePanel'
+import { MAJORS_BY_MARKET } from '@/lib/majorsUniverse'
+import type { ResearchMarketCode } from '@/lib/researchMarket'
 import { LakeMarketSection } from './LakeBoard'
 import {
   AllocationResearch,
@@ -107,6 +110,28 @@ describe('global home', () => {
     expect(el.querySelectorAll('input, textarea, select')).toHaveLength(0)
   })
 
+  it('全球四市涨幅条并排，不嵌 K 线，也不按涨跌幅混成一榜', () => {
+    const onOpen = vi.fn()
+    const board = normalizeLakePanel(statusJson, barsJson)
+    const el = render(<GlobalHome onOpenMarket={onOpen} board={board} boardState="ready" />)
+    expect(el.querySelectorAll('[data-testid="gains-strip"]')).toHaveLength(4)
+    expect(el.querySelector('[data-testid="chart-pane"]')).toBeNull()
+    expect(el.querySelector('[data-testid="daily-candles"]')).toBeNull()
+    expect(el.querySelector('[data-testid="ohlcv-table"]')).toBeNull()
+    const order = [...el.querySelectorAll('[data-testid="gain-chip"]')].map(node => node.getAttribute('data-symbol'))
+    const stripOrder: ResearchMarketCode[] = ['CN', 'CRYPTO', 'US', 'HK']
+    expect(order).toEqual(stripOrder.flatMap(code => MAJORS_BY_MARKET[code].map(entry => entry.symbol)))
+    expect(el.querySelectorAll('[data-testid="sample-badge"]')).toHaveLength(5)
+    expect(el.querySelector('[data-symbol="000300.SH"]')?.getAttribute('data-state')).toBe('EMPTY_PENDING_INGEST')
+    expect(el.querySelector('[data-symbol="600519.SH"]')?.getAttribute('data-last')).toBe('1354')
+    expect(el.querySelector('[data-symbol="AAPL"]')?.getAttribute('data-state')).toBe('UNWIRED')
+    expect(el.textContent).not.toContain('下单')
+    for (const word of FORBIDDEN_ON_GLOBAL) expect(el.textContent ?? '').not.toContain(word)
+    const btc = el.querySelector('[data-symbol="BTC-USDT"]') as HTMLButtonElement
+    act(() => btc.click())
+    expect(onOpen).toHaveBeenCalledWith('CRYPTO', 'BTC-USDT')
+  })
+
   it('UNSIGNED eastmoney 与签版 primary 用不同徽章，且不锁成 source_primary', () => {
     const board = normalizeLakePanel({
       live_trading: true,
@@ -191,8 +216,12 @@ describe('market switch and desks', () => {
     expect(us.querySelector('[data-testid="ohlcv-table"]')).toBeNull()
     expect(us.querySelector('[data-testid="ohlcv-empty"]')?.textContent).toContain('未接线')
     expect(us.textContent).not.toContain('000001.SZ')
-    expect(us.textContent).not.toContain('AAPL')
     expect(us.textContent).not.toContain('连板')
+    const aapl = us.querySelector('[data-testid="gain-chip"][data-symbol="AAPL"]')
+    expect(aapl?.getAttribute('data-state')).toBe('UNWIRED')
+    expect(aapl?.getAttribute('data-last')).toBe('')
+    expect(us.querySelector('[data-testid="chart-pane"]')?.getAttribute('data-candles')).toBe('0')
+    expect(us.textContent).toContain('未接线 · 无 primary · 无涨幅 / 无 K 线')
   })
 
   it('CN 抽屉默认收起，且没有应用到全球', () => {
