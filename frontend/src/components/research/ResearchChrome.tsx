@@ -8,7 +8,6 @@ import {
   MARKET_META,
   NEW_CASH_PRIORITY,
   ORDERS,
-  RESEARCH_MARKETS,
   RESEARCH_VIEWS,
   SLEEVE_INCOME_ENABLED,
   VIEW_LABEL,
@@ -17,7 +16,14 @@ import {
   type ResearchMarketCode,
   type ResearchView,
 } from '@/lib/researchMarket'
+import { resolveLakeModels } from '@/lib/lakePanel'
 import { cn } from '@/lib/cn'
+import {
+  GlobalSummaryTable,
+  LakeMarketSection,
+  MarketSummaryCard,
+  type LakeViewProps,
+} from './LakeBoard'
 
 function LiveOffBadge() {
   return (
@@ -227,55 +233,50 @@ export function AllocationResearch() {
   )
 }
 
-function MarketSummaryCard({
-  code,
-  onOpen,
-}: {
-  code: ResearchMarketCode
-  onOpen: (code: ResearchMarketCode) => void
-}) {
-  const meta = MARKET_META[code]
-  return (
-    <button
-      type="button"
-      data-testid="market-card"
-      data-market={code}
-      onClick={() => onOpen(code)}
-      className="rounded-card border border-border bg-surface/80 p-3 text-left transition-colors hover:border-accent/40"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-sm font-semibold text-foreground">{code}</span>
-        <span className="text-[11px] text-secondary">{VIEW_LABEL[code]}</span>
-      </div>
-      <dl className="mt-2 space-y-1 font-mono text-[10px] text-secondary">
-        <div className="flex justify-between gap-2"><dt className="text-muted">panel_id</dt><dd>{meta.panel}</dd></div>
-        <div className="flex justify-between gap-2"><dt className="text-muted">timezone</dt><dd>{meta.tz}</dd></div>
-        <div className="flex justify-between gap-2"><dt className="text-muted">symbol_count</dt><dd>— · 未接线</dd></div>
-        <div className="flex justify-between gap-2"><dt className="text-muted">data_asof</dt><dd>— · 未接线</dd></div>
-        <div className="flex justify-between gap-2"><dt className="text-muted">source_primary</dt><dd>— · 未接线</dd></div>
-        <div className="flex justify-between gap-2"><dt className="text-muted">alert_count</dt><dd>— · 点入该市</dd></div>
-        <div className="flex justify-between gap-2"><dt className="text-muted">window</dt><dd>{meta.windowNote}</dd></div>
-      </dl>
-      <div className="mt-2 text-[10px] text-muted">LIVE OFF · 进入该市</div>
-    </button>
-  )
-}
-
 /** 默认首页：四市摘要并排，不含跨市混动量，也不挂 A 股投机组件。 */
-export function GlobalHome({ onOpenMarket }: { onOpenMarket: (code: ResearchMarketCode) => void }) {
+export function GlobalHome({
+  onOpenMarket,
+  board = null,
+  boardState = 'unloaded',
+  boardError = null,
+}: { onOpenMarket: (code: ResearchMarketCode) => void } & LakeViewProps) {
+  const resolved = resolveLakeModels(board, boardState, boardError)
   return (
-    <div data-testid="global-home" className="min-h-full bg-base p-3">
+    <div data-testid="global-home" data-view-id="global_overview@1" className="min-h-full bg-base p-3">
       <header className="mb-3">
         <h1 className="text-base font-semibold text-foreground">全球摘要</h1>
         <p className="mt-1 text-[11px] leading-relaxed text-secondary">
-          分市卡片并排，不是跨市合成排序。行情与权重未接线，不用别的市场快照填空。
+          view_id global_overview@1。分市卡片并排，不是跨市合成排序，也不加总成交量。
+          权重未接线。不用别的市场快照填空。
         </p>
+        {resolved.board?.note && (
+          <p data-testid="status-note" className="mt-1 text-[11px] text-secondary">{resolved.board.note}</p>
+        )}
+        {resolved.board?.built_at_utc && (
+          <p className="mt-1 font-mono text-[10px] text-muted">built_at_utc {resolved.board.built_at_utc}</p>
+        )}
+        {resolved.board && resolved.board.live_trading_file !== false && (
+          <p data-testid="live-file-mismatch" className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+            status live_trading={String(resolved.board.live_trading_file)}。界面硬闸仍为 live_trading=false。
+          </p>
+        )}
+        {resolved.board && resolved.board.orders_in_file != null && resolved.board.orders_in_file > 0 && (
+          <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+            status 带了订单列表，界面不展示，orders=[]。
+          </p>
+        )}
+        {boardState === 'error' && (
+          <p data-testid="status-error" className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+            读不到 /dsh-lake-panel-status.json。{boardError || '不把四市写成已接线。'}
+          </p>
+        )}
       </header>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-        {RESEARCH_MARKETS.map(code => (
-          <MarketSummaryCard key={code} code={code} onOpen={onOpenMarket} />
+        {resolved.models.map(model => (
+          <MarketSummaryCard key={model.market} model={model} onOpen={onOpenMarket} />
         ))}
       </div>
+      <GlobalSummaryTable models={resolved.models} onOpen={onOpenMarket} />
       <div className="mt-3">
         <AllocationResearch />
       </div>
@@ -283,8 +284,13 @@ export function GlobalHome({ onOpenMarket }: { onOpenMarket: (code: ResearchMark
   )
 }
 
-/** US / CRYPTO / HK 工作台骨架。不渲染 A 股总览。 */
-export function MarketDesk({ code }: { code: Exclude<ResearchMarketCode, 'CN'> }) {
+/** US / CRYPTO / HK 工作台。不渲染 A 股总览，也不借用其他市场的行。 */
+export function MarketDesk({
+  code,
+  board = null,
+  boardState = 'unloaded',
+  boardError = null,
+}: { code: Exclude<ResearchMarketCode, 'CN'> } & LakeViewProps) {
   const meta = MARKET_META[code]
   return (
     <div data-testid="market-desk" data-market={code} className="min-h-full bg-base p-3">
@@ -296,12 +302,11 @@ export function MarketDesk({ code }: { code: Exclude<ResearchMarketCode, 'CN'> }
         <p className="mt-1 font-mono text-[11px] text-secondary">
           {meta.panel} · {meta.tz} · {meta.windowNote}
         </p>
-        <p className="mt-1 text-[11px] leading-relaxed text-secondary">
-          行情主表（symbol / date / OHLC / volume / annual_vol_20d）未接线。
-          weights（含 CASH）未接线。不把其他市场的行情套进本表。
-        </p>
       </header>
-      <AllocationResearch />
+      <LakeMarketSection code={code} board={board} boardState={boardState} boardError={boardError} />
+      <div className="mt-3">
+        <AllocationResearch />
+      </div>
     </div>
   )
 }
