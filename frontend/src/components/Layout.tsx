@@ -71,6 +71,9 @@ import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
+import { ResearchMarketProvider, useResearchView } from '@/lib/useResearchMarket'
+import { isCnOnlyPath, navAllowed } from '@/lib/researchMarket'
+import { CnOnlyBlocked, ResearchShellBar } from '@/components/research/ResearchChrome'
 
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
@@ -369,6 +372,15 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
 type NavState = 'expanded' | 'rail' | 'hidden'
 
 export function Layout() {
+  return (
+    <ResearchMarketProvider>
+      <LayoutBody />
+    </ResearchMarketProvider>
+  )
+}
+
+function LayoutBody() {
+  const research = useResearchView()
   // ===== 共享 hooks (替代内联 useQuery) =====
   const { data: settingsState } = useSettings()
   const { data: matrix } = useCapabilityMatrix()
@@ -516,12 +528,13 @@ export function Layout() {
   const toggleNavCollapsed = () => {
     setNavStatePersist(navState === 'expanded' ? 'rail' : 'expanded')
   }
-  // 指数条: 固定核心四只 (产品契约, 不再可配置), 常驻显示
+  // 指数条仍是 A 股核心四只（产品契约，不另造清单）。只在 CN 或旗标关闭时显示。
   const sidebarIndexes = CORE_INDEXES
   const { data: sidebarIndexQuotes } = useQuery({
     queryKey: [...QK.indexQuotes, 'sidebar', 'core'] as const,
     queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol)),
-    enabled: sidebarIndexes.length > 0,
+    // 核心四只是 A 股指数合同。全球 / US / CRYPTO / HK 不把它们画成该市行情条。
+    enabled: sidebarIndexes.length > 0 && (!research.enabled || research.view === 'CN'),
     placeholderData: (prev) => prev,
   })
 
@@ -638,7 +651,11 @@ export function Layout() {
     : [...allNav].sort((a, b) => compareByDefaultNav(a.to, b.to))
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
-  const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+  const visibleNavItems = navItems.filter(n =>
+    !hiddenIds.has(n.to)
+    && !hiddenIds.has(n.to.replace(/^\/analysis\//, ''))
+    && navAllowed(n.to, research.enabled, research.view),
+  )
 
   // 新装用户一次性种子: 扩展域页面默认隐藏, 菜单设置里可逐个开启。
   // 老用户 (升级前已完成 onboarding) 只写标记不动偏好, 升级前后侧栏一致。
@@ -1071,7 +1088,8 @@ export function Layout() {
                 )}
               </div>
             )}
-          {!isWatchlistMode && (!realtimeUnavailable || !!realtimeProviderName) && (
+          {!isWatchlistMode && (!realtimeUnavailable || !!realtimeProviderName)
+            && (!research.enabled || research.view === 'CN') && (
             <SidebarIndexQuotes rows={sidebarIndexQuotes?.rows} items={sidebarIndexes} />
           )}
         </div>
@@ -1160,6 +1178,9 @@ export function Layout() {
           </div>
         )}
         <DailyDataHealthNotice />
+        {research.enabled && (
+          <ResearchShellBar view={research.view} onChange={research.setView} />
+        )}
         <Suspense
           fallback={
             <div className="flex items-center justify-center py-24">
@@ -1167,7 +1188,11 @@ export function Layout() {
             </div>
           }
         >
-          <Outlet />
+          {research.enabled && isCnOnlyPath(location.pathname) && research.view !== 'CN' ? (
+            <CnOnlyBlocked onOpenCn={() => research.setView('CN')} />
+          ) : (
+            <Outlet />
+          )}
         </Suspense>
       </motion.main>
       <ToastContainer />
